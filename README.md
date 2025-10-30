@@ -28,8 +28,14 @@ The agent operates as a managed service within the swf-testbed ecosystem, automa
 # The agent runs as a managed service within the testbed
 cd $SWF_PARENT_DIR/swf-testbed
 swf-testbed status  # Check if fast monitoring agent is running
+```
 
-# Manual development run (message-driven mode - default)
+The agent relies on `.env` configuration for API tokens and monitor URLs, and uses supervisord for process management.
+
+### Manual execution for development/testing
+
+```bash
+# For manual development run (message-driven mode - default)
 cd ../swf-fastmon-agent
 export SWF_MONITOR_HTTP_URL="http://localhost:8002"
 export SWF_API_TOKEN="your_api_token_here"
@@ -63,20 +69,17 @@ The fast monitoring agent is configured through the swf-testbed ecosystem:
   - **Message-driven mode**: Responds to data_ready messages from swf-data-agent
   - **Continuous mode**: Periodically scans directories (for development/testing)
 - **Status Reporting**: Provides health checks and performance metrics via BaseAgent
-- **Token-based Authentication**: Secure API access using token authentication
 
-### Fast Monitoring Client 
+### Fast Monitoring Client (in development)
 - **Real-time Display**: Receives and displays TF file notifications in terminal via SSE streaming
 - **Statistics Tracking**: Monitors per-run TF counts and data volume
 - **Graceful Shutdown**: Handles Ctrl+C with summary statistics
-- **Message Filtering**: Filter by message types and agent names
 - **Authentication**: Uses API tokens for secure SSE stream access
-- **Configurable Connection**: Supports custom monitor URLs and filtering options
 
 ### Data Flow
 1. **STF File Detection**: Agent monitors directories for new STF files or receives data_ready messages
 2. **TF Simulation**: Generates TF subsamples from STF files based on configuration parameters
-3. **Database Recording**: Records both STF and TF metadata in swf-monitor database via REST API
+3. **Database Recording**: Records TF metadata in swf-monitor database via REST API
 4. **SSE Message Broadcasting**: Agent sends TF file notifications to swf-monitor's `/api/messages/` endpoint
 5. **Real-time Streaming**: swf-monitor broadcasts messages via SSE to connected clients at `/api/messages/stream/`
 6. **Client Display**: Client receives SSE stream and displays formatted TF information in real-time
@@ -87,8 +90,6 @@ The fast monitoring agent is configured through the swf-testbed ecosystem:
 - **Better Scalability**: SSE handles many concurrent read-only client connections efficiently
 - **Enhanced Security**: API token-based authentication with fine-grained access control
 - **Web Integration Ready**: Easy to add web-based dashboards that consume the same SSE stream
-- **Message Filtering**: Built-in filtering by message types and agent names at the server level
-- **Lower Latency**: Direct HTTP streaming eliminates message broker overhead
 
 ## SSE Client Usage
 

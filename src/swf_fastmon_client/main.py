@@ -16,18 +16,25 @@ from typing import Optional, Dict, Any
 from pathlib import Path
 
 import typer
-from swf_common_lib.base_agent import BaseAgent
+import requests
 
 
-class FastMonitoringClient(BaseAgent):
+class FastMonitoringClient:
     """
-    Client that receives TF file notifications and displays monitoring information.
+    Client that receives TF file notifications via SSE and displays monitoring information.
     """
 
-    def __init__(self):
+    def __init__(self, monitor_base_url=None, api_token=None):
         """Initialize the fast monitoring client."""
-        # Initialize base agent with client-specific parameters
-        super().__init__(agent_type='fastmon-client', subscription_queue='/topic/fastmon_client')
+        # Setup environment variables from ~/.env file if present
+        self._setup_environment()
+        
+        # Monitor configuration
+        self.monitor_base_url = monitor_base_url or os.getenv('SWF_MONITOR_URL', 'http://localhost:8002').rstrip('/')
+        self.api_token = api_token or os.getenv('SWF_API_TOKEN')
+        
+        if not self.api_token:
+            raise ValueError("SWF_API_TOKEN environment variable is required")
         
         # Client-specific state
         self.tf_files_received = 0
@@ -36,34 +43,159 @@ class FastMonitoringClient(BaseAgent):
         self.start_time = datetime.now()
         self.running = True
         
+        # HTTP session configuration
+        self.session = requests.Session()
+        self.session.headers.update({
+            'Authorization': f'Token {self.api_token}',
+            'Cache-Control': 'no-cache',
+            'Accept': 'text/event-stream',
+            'Connection': 'keep-alive',
+        })
+        
         # Register signal handlers for graceful shutdown
         signal.signal(signal.SIGINT, self._signal_handler)
         signal.signal(signal.SIGTERM, self._signal_handler)
         
-        self.logger.info("Fast Monitoring Client initialized")
+        print("🔧 Fast Monitoring Client initialized")
+        print(f"   Monitor URL: {self.monitor_base_url}")
+        print(f"   Token prefix: {self.api_token[:12]}..." if len(self.api_token) >= 12 else "   Token: [short token]")
+
+    def _setup_environment(self):
+        """Load environment variables from ~/.env file if present."""
+        env_file = Path.home() / ".env"
+        if env_file.exists():
+            with env_file.open() as f:
+                for line in f:
+                    line = line.strip()
+                    if not line or line.startswith('#') or '=' not in line:
+                        continue
+                    if line.startswith('export '):
+                        line = line[7:]
+                    key, value = line.split('=', 1)
+                    os.environ[key.strip()] = value.strip("'\"")
 
     def _signal_handler(self, signum, frame):
         """Handle shutdown signals gracefully."""
-        self.logger.info(f"Received signal {signum}, shutting down gracefully...")
+        print(f"\n📡 Received signal {signum}, shutting down gracefully...")
         self.running = False
 
-    def on_message(self, frame):
-        """
-        Handle incoming TF file notifications from the FastMon agent.
-        """
+    def connect_and_receive(self, msg_types=None, agents=None):
+        """Connect to SSE stream and process messages in a loop."""
+        # Build stream URL with filters
+        stream_url = f"{self.monitor_base_url}/api/messages/stream/"
+        params = []
+        if msg_types:
+            params.append(f"msg_types={','.join(msg_types)}")
+        if agents:
+            params.append(f"agents={','.join(agents)}")
+        if params:
+            stream_url += "?" + "&".join(params)
+        
+        status_url = f"{self.monitor_base_url}/api/messages/stream/status/"
+        print(f"📡 Connecting to SSE stream: {stream_url}")
+
+        while self.running:
+            try:
+                # Status precheck
+                print("🔌 Testing SSE endpoint...")
+                status_resp = self.session.get(status_url, timeout=20, allow_redirects=False, headers={'Accept': 'application/json'})
+                if status_resp.status_code != 200:
+                    if status_resp.status_code in (401, 403):
+                        print(f"❌ Auth failed (HTTP {status_resp.status_code}). Check SWF_API_TOKEN.")
+                    else:
+                        print(f"❌ SSE endpoint not available: HTTP {status_resp.status_code}")
+                    print("   Retrying in 15 seconds...")
+                    time.sleep(15)
+                    continue
+
+                # Open the SSE stream
+                response = self.session.get(stream_url, stream=True, timeout=(10, 3600), allow_redirects=False)
+                if response.status_code != 200:
+                    if response.status_code in (401, 403):
+                        print(f"❌ Auth failed opening stream (HTTP {response.status_code}). Check SWF_API_TOKEN.")
+                    else:
+                        print(f"❌ Failed to open stream: HTTP {response.status_code}")
+                    print("   Retrying in 15 seconds...")
+                    time.sleep(15)
+                    continue
+
+                print("✅ SSE stream opened - waiting for events... (Ctrl+C to exit)")
+                print("-" * 60)
+                
+                # Process SSE stream
+                self._process_sse_stream(response)
+
+            except requests.exceptions.ReadTimeout as e:
+                print(f"⏱️  Read timeout while waiting for messages: {e}")
+                print("   Reconnecting in 15 seconds...")
+                time.sleep(15)
+            except requests.exceptions.RequestException as e:
+                print(f"❌ Connection error: {e}")
+                print("   Retrying in 15 seconds...")
+                time.sleep(15)
+            except Exception as e:
+                print(f"❌ Unexpected error: {e}")
+                time.sleep(15)
+
+    def _process_sse_stream(self, response):
+        """Process the SSE stream for incoming messages."""
+        event_buffer = []
         try:
-            message_data = json.loads(frame.body)
-            msg_type = message_data.get('msg_type')
-
-            if msg_type == 'tf_file_registered':
-                self._handle_tf_file_notification(message_data)
-            else:
-                self.logger.warning(f"Unknown message type: {msg_type}")
-
-        except json.JSONDecodeError as e:
-            self.logger.error(f"Failed to parse message JSON: {e}")
+            for line in response.iter_lines(decode_unicode=True, chunk_size=1):
+                if line is None:
+                    continue
+                line = line.strip()
+                if not line:
+                    if event_buffer:
+                        self._handle_sse_event(event_buffer)
+                        event_buffer = []
+                else:
+                    event_buffer.append(line)
+        except KeyboardInterrupt:
+            print("\n📡 Received interrupt - closing connection...")
         except Exception as e:
-            self.logger.error(f"Error processing message: {e}")
+            print(f"❌ Error processing stream: {e}")
+        finally:
+            try:
+                response.close()
+            except Exception:
+                pass
+
+    def _handle_sse_event(self, event_lines):
+        """Handle a single SSE event."""
+        event_type = "message"
+        event_data = ""
+        for line in event_lines:
+            if line.startswith('event: '):
+                event_type = line[7:]
+            elif line.startswith('data: '):
+                event_data = line[6:]
+
+        timestamp = time.strftime("%H:%M:%S")
+        if event_type == "connected":
+            print(f"[{timestamp}] 🔗 Connected to SSE stream")
+            try:
+                data = json.loads(event_data)
+                client_id = data.get('client_id', 'unknown')
+                print(f"[{timestamp}] 📋 Client ID: {client_id}")
+            except Exception:
+                pass
+        elif event_type == "heartbeat":
+            # Stay quiet on heartbeats to avoid log spam
+            return
+        else:
+            try:
+                data = json.loads(event_data)
+                msg_type = data.get('msg_type', 'unknown')
+                
+                if msg_type == 'tf_file_registered':
+                    self._handle_tf_file_notification(data)
+                else:
+                    print(f"[{timestamp}] 📨 Other message: {msg_type}")
+            except json.JSONDecodeError:
+                print(f"[{timestamp}] 📨 Non-JSON message: {event_data}")
+            except Exception as e:
+                print(f"[{timestamp}] ❌ Error parsing message: {e}")
 
     def _handle_tf_file_notification(self, message_data: Dict[str, Any]):
         """
@@ -171,62 +303,39 @@ class FastMonitoringClient(BaseAgent):
         
         print("="*80)
 
-    def start_monitoring(self):
+    def start_monitoring(self, msg_types=None, agents=None):
         """
-        Start the monitoring client with enhanced output.
+        Start the monitoring client with SSE stream connection.
         """
         print("\n" + "="*80)
-        print("FAST MONITORING CLIENT STARTED")
+        print("FAST MONITORING CLIENT STARTED (SSE)")
         print("="*80)
-        print(f"Connected to: {self.mq_host}:{self.mq_port}")
-        print(f"Subscription: {self.subscription_queue}")
+        print(f"Monitor URL: {self.monitor_base_url}")
         print(f"Started at: {self.start_time.strftime('%Y-%m-%d %H:%M:%S')}")
+        
+        if msg_types or agents:
+            filters = []
+            if msg_types:
+                filters.append(f"messages: {', '.join(msg_types)}")
+            if agents:
+                filters.append(f"agents: {', '.join(agents)}")
+            print(f"🔍 Filtering enabled - {' | '.join(filters)}")
+        else:
+            print("📬 Receiving all messages (no filtering)")
+            
         print("Press Ctrl+C to stop")
         print("="*80)
         print("TF File Notifications:")
         print("-" * 80)
 
         try:
-            # Override the base run method to add custom monitoring logic
-            self.logger.info(f"Starting {self.agent_name}...")
-            self.logger.info(f"Connecting to ActiveMQ at {self.mq_host}:{self.mq_port}")
-            
-            # Track MQ connection status
-            self.mq_connected = False
-            
-            self.conn.connect(
-                self.mq_user, 
-                self.mq_password, 
-                wait=True, 
-                version='1.1',
-                headers={
-                    'client-id': self.agent_name,
-                    'heart-beat': '10000,30000'
-                }
-            )
-            self.mq_connected = True
-            self.logger.info("Successfully connected to ActiveMQ")
-            
-            self.conn.subscribe(destination=self.subscription_queue, id=1, ack='auto')
-            self.logger.info(f"Subscribed to queue: '{self.subscription_queue}'")
-
-            # Monitor loop
-            while self.running:
-                time.sleep(1)
-                
-                # Check connection status
-                if not self.mq_connected:
-                    self._attempt_reconnect()
-
+            self.connect_and_receive(msg_types=msg_types, agents=agents)
         except KeyboardInterrupt:
-            self.logger.info("Received interrupt signal")
+            print("\n📡 Received interrupt signal")
         except Exception as e:
-            self.logger.error(f"Monitoring error: {e}")
+            print(f"❌ Monitoring error: {e}")
         finally:
             self.display_summary()
-            if self.conn and self.conn.is_connected():
-                self.conn.disconnect()
-                self.logger.info("Disconnected from ActiveMQ")
 
 
 # Typer CLI Application
@@ -235,33 +344,30 @@ app = typer.Typer(help="Fast Monitoring Client for ePIC SWF Testbed")
 
 @app.command()
 def start(
-    host: str = typer.Option("localhost", "--host", "-h", help="ActiveMQ host"),
-    port: int = typer.Option(61612, "--port", "-p", help="ActiveMQ STOMP port"),
-    user: str = typer.Option("admin", "--user", "-u", help="ActiveMQ username"),
-    password: str = typer.Option("admin", "--password", help="ActiveMQ password"),
-    queue: str = typer.Option("/topic/fastmon_client", "--queue", "-q", help="Topic to subscribe to"),
-    ssl: bool = typer.Option(False, "--ssl", help="Use SSL connection"),
-    ca_certs: Optional[str] = typer.Option(None, "--ca-certs", help="Path to CA certificates file")
+    monitor_url: str = typer.Option("http://localhost:8002", "--monitor-url", "-m", help="Monitor base URL"),
+    api_token: Optional[str] = typer.Option(None, "--api-token", "-t", help="API token for authentication"),
+    message_types: Optional[str] = typer.Option(None, "--message-types", help="Filter by message types (comma-separated)"),
+    agents: Optional[str] = typer.Option(None, "--agents", help="Filter by agent names (comma-separated)")
 ):
-    """Start the fast monitoring client."""
+    """Start the fast monitoring client with SSE streaming."""
     
-    # Set environment variables for the client
-    os.environ['ACTIVEMQ_HOST'] = host
-    os.environ['ACTIVEMQ_PORT'] = str(port)
-    os.environ['ACTIVEMQ_USER'] = user
-    os.environ['ACTIVEMQ_PASSWORD'] = password
-    os.environ['ACTIVEMQ_USE_SSL'] = str(ssl).lower()
+    # Parse comma-separated values
+    msg_types = None
+    if message_types:
+        msg_types = [t.strip() for t in message_types.split(',')]
     
-    if ca_certs:
-        os.environ['ACTIVEMQ_SSL_CA_CERTS'] = ca_certs
+    agent_list = None
+    if agents:
+        agent_list = [a.strip() for a in agents.split(',')]
 
-    # Create and start client
-    client = FastMonitoringClient()
-    # Override subscription topic if specified
-    client.subscription_queue = queue
-    
     try:
-        client.start_monitoring()
+        # Create and start client
+        client = FastMonitoringClient(monitor_base_url=monitor_url, api_token=api_token)
+        client.start_monitoring(msg_types=msg_types, agents=agent_list)
+    except ValueError as e:
+        typer.echo(f"Configuration error: {e}", err=True)
+        typer.echo("Set SWF_API_TOKEN environment variable or use --api-token", err=True)
+        raise typer.Exit(1)
     except Exception as e:
         typer.echo(f"Error starting client: {e}", err=True)
         raise typer.Exit(1)
@@ -270,19 +376,21 @@ def start(
 @app.command()
 def status():
     """Show client status and configuration."""
-    typer.echo("Fast Monitoring Client Status")
+    typer.echo("Fast Monitoring Client Status (SSE)")
     typer.echo("=" * 40)
-    typer.echo(f"ActiveMQ Host: {os.getenv('ACTIVEMQ_HOST', 'localhost')}")
-    typer.echo(f"ActiveMQ Port: {os.getenv('ACTIVEMQ_PORT', '61612')}")
-    typer.echo(f"Topic: /topic/fastmon_client")
-    typer.echo(f"SSL Enabled: {os.getenv('ACTIVEMQ_USE_SSL', 'false')}")
+    typer.echo(f"Monitor URL: {os.getenv('SWF_MONITOR_URL', 'http://localhost:8002')}")
+    typer.echo(f"API Token: {'Set' if os.getenv('SWF_API_TOKEN') else 'Not set'}")
+    typer.echo(f"SSE Stream: /api/messages/stream/")
+    typer.echo(f"Message Types: All (filter with --message-types)")
+    typer.echo(f"Agents: All (filter with --agents)")
 
 
 @app.command()
 def version():
     """Show client version information."""
-    typer.echo("Fast Monitoring Client v1.0.0")
+    typer.echo("Fast Monitoring Client (SSE)")
     typer.echo("Part of ePIC SWF Testbed")
+    typer.echo("Uses Server-Sent Events for real-time monitoring")
 
 
 if __name__ == "__main__":

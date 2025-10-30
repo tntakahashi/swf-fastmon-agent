@@ -13,7 +13,6 @@ monitor the ePIC data acquisition remotely.
 
 The client is designed to receive metadata from the `swf-fastmon-agent` and display it in a user-friendly format/web interface. 
 
-* It uses ActiveMQ to receive TFs metadata via STOMP protocol.
-* Store the metadata in a configurable database backend using Django ORM (SQLite, PostgreSQL, or MySQL).
+* It uses ActiveMQ to receive TFs metadata via SSE protocol.
 * Uses Typer for command-line interface.
-* It can be extended to provide a web interface for monitoring
+* It can be extended to provide a web interface for monitoring (like a Grafana dashboard).
