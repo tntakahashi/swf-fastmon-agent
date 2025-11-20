@@ -173,11 +173,11 @@ class TestSimulateTfSubsamples:
     def test_generate_tf_subsamples(self):
         """Test generating TF subsamples from STF file."""
         mock_logger = Mock()
-        
+
         stf_file = {
             'file_id': 'stf-uuid-123',
             'filename': 'test_run001.stf',
-            'file_size_bytes': 1000000
+            'size_bytes': 1000000
         }
 
         config = {
@@ -186,52 +186,54 @@ class TestSimulateTfSubsamples:
             'tf_sequence_start': 1,
             'agent_name': 'test-agent'
         }
-        
+
         result = simulate_tf_subsamples(stf_file, config, mock_logger, agent_name='test-agent')
-        
+
         # Verify correct number of TF files generated
         assert len(result) == 3
-        
-        # Verify TF file structure
+
+        # Verify TF file structure and new foreign key field
         for i, tf in enumerate(result):
             assert 'tf_filename' in tf
             assert 'file_size_bytes' in tf
             assert 'sequence_number' in tf
             assert tf['sequence_number'] == i + 1
-            assert tf['stf_parent'] == 'test_run001.stf'
+            assert tf['stf_file_id'] == 'stf-uuid-123'  # UUID for foreign key
+            assert tf['stf_parent'] == 'test_run001.stf'  # Filename for reference
             assert 'simulation' in tf['metadata']
 
     def test_generate_tf_with_defaults(self):
         """Test TF generation with default configuration values."""
         mock_logger = Mock()
-        
+
         stf_file = {
             'file_id': 'stf-uuid-456',
-            'stf_filename': 'test.stf',
-            'file_size_bytes': 500000
+            'filename': 'test.stf',
+            'size_bytes': 500000
         }
-        
+
         config = {}  # Empty config to test defaults
-        
+
         result = simulate_tf_subsamples(stf_file, config, mock_logger, agent_name='test-agent')
-        
+
         # Should use default values (2 TF files)
         assert len(result) == 2
-        
-        # Verify default sequence numbering
+
+        # Verify default sequence numbering and foreign key
         assert result[0]['sequence_number'] == 1
         assert result[-1]['sequence_number'] == 2
+        assert all(tf['stf_file_id'] == 'stf-uuid-456' for tf in result)
 
 
 class TestRecordTfFile:
     """Tests for record_tf_file function."""
 
     def test_record_tf_file_success(self):
-        """Test successful TF file recording via REST API."""
+        """Test successful TF file recording via REST API with UUID foreign key."""
         # Mock agent and logger
         mock_agent = Mock()
         mock_logger = Mock()
-        
+
         # Mock API response for successful creation
         mock_agent.call_monitor_api.return_value = {
             'tf_file_id': 'tf-uuid-123',
@@ -239,20 +241,22 @@ class TestRecordTfFile:
             'status': 'REGISTERED'
         }
 
+        # TF metadata now includes stf_file_id (UUID) for foreign key
         tf_metadata = {
-            'stf_parent': 'stf-uuid-123',
+            'stf_file_id': 'stf-uuid-parent-456',  # UUID foreign key
+            'stf_parent': 'test_run001.stf',  # Filename for reference
             'tf_filename': 'test_tf_001.tf',
             'file_size_bytes': 150000,
             'metadata': {'simulation': True}
         }
         config = {}
-        
+
         result = record_tf_file(tf_metadata, config, mock_agent, mock_logger)
-        
-        # Verify TF file was recorded
+
+        # Verify TF file was recorded with UUID foreign key
         assert result['tf_file_id'] == 'tf-uuid-123'
         mock_agent.call_monitor_api.assert_called_once_with('post', '/fastmon-files/', {
-            'stf_file': 'stf-uuid-123',
+            'stf_file': 'stf-uuid-parent-456',  # UUID, not filename
             'tf_filename': 'test_tf_001.tf',
             'file_size_bytes': 150000,
             'status': FileStatus.REGISTERED,
