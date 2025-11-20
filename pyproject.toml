@@ -16,7 +16,6 @@ dependencies = [
     "stomp.py>=8.1.0",
     "requests>=2.31.0",
     "python-json-logger>=2.0.0",
-    "swf-common-lib",
 ]
 [project.optional-dependencies]
 dev = [
