@@ -14,9 +14,9 @@ dependencies = [
     "psycopg2-binary>=2.9.0",
     "typer>=0.9.0",
     "stomp.py>=8.1.0",
-    # This is a dependency from our other local package
-    #"swf-common-lib",
-    #"supervisor"
+    "requests>=2.31.0",
+    "python-json-logger>=2.0.0",
+    "swf-common-lib",
 ]
 [project.optional-dependencies]
 dev = [

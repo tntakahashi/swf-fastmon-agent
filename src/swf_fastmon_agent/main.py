@@ -10,11 +10,13 @@ Designed to run continuously under supervisord.
 """
 
 import sys
+import os
+import time
 import json
 from datetime import datetime
 
 from swf_common_lib.base_agent import BaseAgent, setup_environment
-import fastmon_utils as fastmon_utils
+from swf_fastmon_agent import fastmon_utils
 
 
 class FastMonitorAgent(BaseAgent):
@@ -42,6 +44,9 @@ class FastMonitorAgent(BaseAgent):
 
         self.logger.info("Fast Monitor Agent initialized successfully")
 
+        # Set destination for broadcasting TF file notifications
+        self.destination = os.getenv('ACTIVEMQ_FASTMON_TOPIC', 'epictopic')
+
         self.config = config
 
         # Validate configuration
@@ -51,7 +56,12 @@ class FastMonitorAgent(BaseAgent):
         # Fast monitoring specific state
         self.stf_messages_processed = 0
         self.last_message_time = None
-        self.processing_stats = {'total_stf_messages': 0, 'total_tf_files_created': 0}
+        self.files_processed = 0  # For continuous monitoring mode
+        self.processing_stats = {
+            'total_stf_messages': 0,
+            'total_tf_files_created': 0,
+            'total_files': 0  # For continuous monitoring mode
+        }
 
 
     def _emulate_stf_registration_and_sampling(self):
@@ -88,20 +98,27 @@ class FastMonitorAgent(BaseAgent):
                 stf_file = fastmon_utils.record_stf_file(file_path, self.config, self, self.logger)
                 self.files_processed += 1
 
-                # Simulate TF subsamples for this STF file
-                tf_subsamples = fastmon_utils.simulate_tf_subsamples(stf_file, file_path, self.config, self.logger)
+                # Create mock stf_ready message (matching format from data agent)
+                message_data = {
+                    "msg_type": "stf_ready",
+                    "filename": stf_file.get('stf_filename'),
+                    "file_id": stf_file.get('file_id'),  # UUID for foreign key
+                    "run_id": stf_file.get('run'),
+                    "file_url": stf_file.get('metadata', {}).get('file_url', ''),
+                    "checksum": stf_file.get('checksum', ''),
+                    "size_bytes": stf_file.get('file_size_bytes'),
+                    "start": stf_file.get('metadata', {}).get('creation_time', ''),
+                    "end": stf_file.get('metadata', {}).get('modification_time', ''),
+                    "state": "physics",
+                    "substate": "running",
+                    "processed_by": self.agent_name
+                }
 
-                # Record each TF file in the FastMonFile table
-                tf_files_created = 0
-                for tf_metadata in tf_subsamples:
-                    tf_file = fastmon_utils.record_tf_file(stf_file, tf_metadata, self.config, self, self.logger)
-                    if tf_file:
-                        tf_files_created += 1
-                        # Send notification to clients about new TF file
-                        self.send_tf_file_notification(tf_file, stf_file)
-                    tf_files_registered.append(tf_file)
+                # Use the same sample_timeframes method as message-driven mode
+                tf_files = self.sample_timeframes(message_data)
+                tf_files_registered.extend(tf_files)
 
-                self.logger.info(f"Registered {tf_files_created} TF subsamples for STF file {stf_file['filename']}")
+                self.logger.info(f"Processed STF file {stf_file['stf_filename']} -> {len(tf_files)} TF files")
 
             # Report successful processing
             self.report_agent_status('OK', f'Emulating {len(tf_files_registered)} fast monitoring files')
@@ -173,9 +190,37 @@ class FastMonitorAgent(BaseAgent):
             self.logger.error("No filename provided in message")
             return tf_files_registered
 
+        # Track workflow stage (optional - controlled by FASTMON_TRACK_WORKFLOW env var)
+        workflow_id = message_data.get('workflow_id')
+        stage_id = None
+        track_workflow = os.getenv('FASTMON_TRACK_WORKFLOW', 'false').lower() == 'true'
+
+        if workflow_id and track_workflow:
+            try:
+                # Create workflow stage entry for fast monitoring
+                stage_data = {
+                    'workflow': workflow_id,
+                    'agent_name': self.agent_name,
+                    'agent_type': 'fastmon',
+                    'status': 'fastmon_received',
+                    'input_message': message_data
+                }
+                stage = self.call_monitor_api('POST', '/workflow-stages/', stage_data)
+                stage_id = stage.get('id')
+                self.logger.debug(f"Created workflow stage {stage_id} for workflow {workflow_id}")
+
+                # Update to processing status
+                self.call_monitor_api('PATCH', f'/workflow-stages/{stage_id}/', {
+                    'status': 'fastmon_processing',
+                    'started_at': datetime.now().isoformat()
+                })
+            except Exception as e:
+                self.logger.warning(f"Could not create workflow stage: {e}")
+
+        # Simulate TF subsamples from STF data
         tf_subsamples = fastmon_utils.simulate_tf_subsamples(message_data, self.config, self.logger, self.agent_name)
 
-        # Record each TF file in the FastMonFile table
+        # Record each TF file in the FastMonFile table and send notifications
         # TODO: register in bulk
         tf_files_created = 0
         for tf_metadata in tf_subsamples:
@@ -183,12 +228,30 @@ class FastMonitorAgent(BaseAgent):
             tf_file = fastmon_utils.record_tf_file(tf_metadata, self.config, self, self.logger)
             if tf_file:
                 tf_files_created += 1
+                # Send notification to clients about new TF file
+                self.send_tf_file_notification(tf_file, message_data)
             tf_files_registered.append(tf_file)
 
         # Update TF creation stats
         self.processing_stats['total_tf_files_created'] += tf_files_created
 
         self.logger.info(f"Registered {tf_files_created} TF subsamples for STF file {message_data.get('filename')}")
+
+        # Mark workflow stage as complete
+        if stage_id:
+            try:
+                output_message = {
+                    'tf_files_created': tf_files_created,
+                    'tf_filenames': [tf.get('tf_filename') for tf in tf_files_registered if tf]
+                }
+                self.call_monitor_api('PATCH', f'/workflow-stages/{stage_id}/', {
+                    'status': 'fastmon_complete',
+                    'completed_at': datetime.now().isoformat(),
+                    'output_message': output_message
+                })
+            except Exception as e:
+                self.logger.warning(f"Could not update workflow stage: {e}")
+
         return tf_files_registered
 
     def start_continuous_monitoring(self):

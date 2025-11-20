@@ -311,7 +311,8 @@ def simulate_tf_subsamples(stf_file: Dict[str, Any], config: dict, logger: loggi
                 "tf_filename": tf_filename,
                 "file_size_bytes": tf_size,
                 "sequence_number": sequence_number,
-                "stf_parent": stf_file.get("filename"),  # Use unique filename as parent identifier
+                "stf_file_id": stf_file.get("file_id"),  # UUID for foreign key reference
+                "stf_parent": stf_file.get("filename"),  # Keep filename for reference
                 "metadata": {
                     "simulation": True,
                     "created_from": stf_file.get('filename'),
@@ -349,7 +350,7 @@ def record_tf_file(tf_metadata: Dict[str, Any], config: dict, agent, logger: log
     try:
         # Prepare FastMonFile data for API
         tf_file_data = {
-            "stf_file": tf_metadata.get("stf_parent", None),  # STF filename as parent identifier
+            "stf_file": tf_metadata.get("stf_file_id"),  # UUID foreign key to StfFile
             "tf_filename": tf_metadata["tf_filename"],
             "file_size_bytes": tf_metadata["file_size_bytes"],
             "status": FileStatus.REGISTERED,

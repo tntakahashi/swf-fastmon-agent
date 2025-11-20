@@ -28,6 +28,31 @@ The project is designed to work with PostgreSQL databases and ActiveMQ messaging
 - **Code Formatter**: Black
 - **License**: Apache 2.0
 - **Environment Variable**: `SWF_HOME` automatically set to parent directory containing all swf-* repos (via swf-testbed CLI)
+- **Architecture**: Extends BaseAgent from swf-common-lib for standardized agent behavior
+
+## Recent Infrastructure Updates (2025-11)
+
+### BaseAgent Integration
+The agent now inherits from **BaseAgent** (swf-common-lib) providing:
+- Automatic environment setup and .env loading
+- REST logging to swf-monitor
+- Sequential agent ID generation
+- Enhanced heartbeat with workflow metadata
+- Automatic subscriber registration
+- Connection resilience with auto-reconnection
+
+### Workflow Tracking
+Integrated with swf-monitor's workflow tracking system:
+- Creates workflow stages via `/api/workflow-stages/`
+- Tracks statuses: `fastmon_received`, `fastmon_processing`, `fastmon_complete`
+- Records input/output messages and processing times
+- Enables end-to-end workflow visibility
+
+### MQ Communications
+Updated to use swf-common-lib's mq_comms module:
+- Requires `client_id` parameter for durable subscriptions
+- SSL support with `MQ_CAFILE` environment variable
+- Standardized error handling and reconnection logic
 
 ## Project Structure
 
@@ -115,8 +140,44 @@ This project integrates with:
 - **mypy**: Static type checking (>=1.0.0)
 - **django-stubs**: Django type stubs (>=1.13.0)
 
-### Database Environment Variables
-Django settings support standard environment variables:
+### Environment Variables Configuration
+
+The agent requires a `.env` file with the following variables:
+
+**Monitor Connection:**
+- `SWF_MONITOR_URL` - HTTPS URL for authenticated API calls (required)
+- `SWF_MONITOR_HTTP_URL` - HTTP URL for REST logging (optional)
+- `SWF_API_TOKEN` - Authentication token for swf-monitor API (required)
+
+**ActiveMQ Configuration:**
+- `ACTIVEMQ_HOST` - ActiveMQ broker host (default: localhost)
+- `ACTIVEMQ_PORT` - STOMP port (default: 61612)
+- `ACTIVEMQ_USER` - ActiveMQ username (required)
+- `ACTIVEMQ_PASSWORD` - ActiveMQ password (required)
+- `ACTIVEMQ_USE_SSL` - Enable SSL connections (true/false)
+- `ACTIVEMQ_SSL_CA_CERTS` - Path to CA certificate file
+
+**MQ Communications (swf-common-lib):**
+- `MQ_USER` - Message queue username (required)
+- `MQ_PASSWD` - Message queue password (required)
+- `MQ_HOST` - Message queue host (required)
+- `MQ_PORT` - Message queue port (required)
+- `MQ_CAFILE` - SSL CA certificate path (required for SSL)
+
+**Logging:**
+- `SWF_LOG_LEVEL` - Log level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
+- `SWF_STOMP_DEBUG` - Enable STOMP protocol debugging (true/false)
+- `SWF_AGENT_QUIET` - Minimal output mode (true/false)
+
+**Agent Configuration:**
+- `FASTMON_MODE` - Operation mode: `message` (default) or `continuous`
+- `FASTMON_SELECTION_FRACTION` - STF sampling fraction (0.0-1.0, default: 0.1)
+- `FASTMON_TF_FILES_PER_STF` - TF files per STF (default: 7)
+
+See `.env.example` for a complete template with all available options.
+
+### Database Environment Variables (Django Legacy)
+Legacy Django settings (if needed for local development):
 - `POSTGRES_HOST` (default: localhost)
 - `POSTGRES_PORT` (default: 5432)
 - `POSTGRES_DB` (default: epic_monitoring)
@@ -129,6 +190,52 @@ Django settings support standard environment variables:
 - Database credentials (`.pgpass`) are excluded from version control
 - Log files are excluded from commits
 
+## API Integration
+
+The agent integrates with swf-monitor REST API endpoints:
+
+### Core Endpoints Used
+- `POST /api/runs/` - Create/retrieve run records
+- `POST /api/stf-files/` - Register STF files (development mode only)
+- `POST /api/fastmon-files/` - Register TF files (primary endpoint)
+- `POST /api/workflow-stages/` - Create workflow stage tracking
+- `PATCH /api/workflow-stages/{id}/` - Update stage status and timestamps
+- `POST /api/subscribers/` - Auto-register as ActiveMQ subscriber (via BaseAgent)
+
+### FastMonFile API Schema
+```json
+{
+  "stf_file": "parent_stf_filename.stf",
+  "tf_filename": "tf_001.tf",
+  "file_size_bytes": 1234567,
+  "status": "registered",
+  "metadata": {
+    "simulation": true,
+    "created_from": "stf_filename.stf",
+    "agent_name": "swf-fastmon-agent-1"
+  }
+}
+```
+
+### Workflow Stage Tracking
+The agent creates and updates workflow stages for each STF processed:
+```python
+# Create stage
+stage_data = {
+    'workflow': workflow_id,
+    'agent_name': 'swf-fastmon-agent-1',
+    'agent_type': 'fastmon',
+    'status': 'fastmon_received',
+    'input_message': {...}
+}
+
+# Update during processing
+{'status': 'fastmon_processing', 'started_at': '2025-11-19T10:30:00Z'}
+
+# Mark complete
+{'status': 'fastmon_complete', 'completed_at': '2025-11-19T10:30:15Z', 'output_message': {...}}
+```
+
 ## Development Commands
 
 ### System Initialization
@@ -136,10 +243,18 @@ Django settings support standard environment variables:
 cd $SWF_PARENT_DIR/swf-testbed
 source .venv/bin/activate  # or conda activate your_env_name
 pip install -e $SWF_PARENT_DIR/swf-common-lib $SWF_PARENT_DIR/swf-monitor $SWF_PARENT_DIR/swf-fastmon-agent .
-# CRITICAL: Set up Django environment
+
+# CRITICAL: Set up environment configuration
+cd $SWF_PARENT_DIR/swf-fastmon-agent
+cp .env.example .env
+# Edit .env with actual values for SWF_MONITOR_URL, SWF_API_TOKEN, ActiveMQ credentials, etc.
+
+# Set up Django environment (swf-monitor)
 cp $SWF_PARENT_DIR/swf-monitor/.env.example $SWF_PARENT_DIR/swf-monitor/.env
 # Edit .env to set DB_PASSWORD='your_db_password' and SECRET_KEY
 cd $SWF_PARENT_DIR/swf-monitor/src && python manage.py migrate
+
+# Initialize testbed
 cd $SWF_PARENT_DIR/swf-testbed && swf-testbed init
 ```
 
