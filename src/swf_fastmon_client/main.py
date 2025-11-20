@@ -11,6 +11,7 @@ import sys
 import json
 import time
 import signal
+import logging
 from datetime import datetime
 from typing import Optional, Dict, Any
 from pathlib import Path
@@ -28,6 +29,9 @@ class FastMonitoringClient:
         """Initialize the fast monitoring client."""
         # Setup environment variables from ~/.env file if present
         self._setup_environment()
+
+        self.logger = logging.getLogger(__name__)
+        self.logger.setLevel(logging.DEBUG)
         
         # Monitor configuration
         self.monitor_base_url = monitor_base_url or os.getenv('SWF_MONITOR_URL', 'http://localhost:8002').rstrip('/')
@@ -344,7 +348,7 @@ app = typer.Typer(help="Fast Monitoring Client for ePIC SWF Testbed")
 
 @app.command()
 def start(
-    monitor_url: str = typer.Option("http://localhost:8002", "--monitor-url", "-m", help="Monitor base URL"),
+    monitor_url: Optional[str] = typer.Option(None, "--monitor-url", "-m", help="Monitor base URL"),
     api_token: Optional[str] = typer.Option(None, "--api-token", "-t", help="API token for authentication"),
     message_types: Optional[str] = typer.Option(None, "--message-types", help="Filter by message types (comma-separated)"),
     agents: Optional[str] = typer.Option(None, "--agents", help="Filter by agent names (comma-separated)")

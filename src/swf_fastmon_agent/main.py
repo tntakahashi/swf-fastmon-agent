@@ -260,7 +260,20 @@ class FastMonitorAgent(BaseAgent):
         NOTE: Intended for development and testing purposes.
         """
         self.logger.info("Starting continuous fast monitoring (DEV MODE)...")
-        
+
+        # Connect to ActiveMQ
+        self.conn.connect(
+            self.mq_user, 
+            self.mq_password, 
+            wait=True, 
+            version='1.1',
+            headers={
+                'client-id': self.agent_name,
+                'heart-beat': '30000,30000'  # Send heartbeat every 30sec, expect server every 30sec
+            }
+        )
+        self.mq_connected = True
+
         try:
             while True:
                 tf_files_created = self._emulate_stf_registration_and_sampling()
