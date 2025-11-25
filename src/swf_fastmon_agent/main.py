@@ -262,6 +262,7 @@ class FastMonitorAgent(BaseAgent):
         self.logger.info("Starting continuous fast monitoring (DEV MODE)...")
 
         # Connect to ActiveMQ
+        # TODO: abstract the connection with the message queue (check methods in swf-common-lib)
         self.conn.connect(
             self.mq_user, 
             self.mq_password, 

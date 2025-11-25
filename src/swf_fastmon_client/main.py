@@ -31,6 +31,7 @@ class FastMonitoringClient:
         self._setup_environment()
 
         self.logger = logging.getLogger(__name__)
+        #TODO: add a command-line option to specify the log level
         self.logger.setLevel(logging.DEBUG)
         
         # Monitor configuration
