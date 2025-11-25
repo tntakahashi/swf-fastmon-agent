@@ -348,7 +348,7 @@ app = typer.Typer(help="Fast Monitoring Client for ePIC SWF Testbed")
 
 @app.command()
 def start(
-    monitor_url: Optional[str] = typer.Option(None, "--monitor-url", "-m", help="Monitor base URL"),
+    monitor_url: Optional[str] = typer.Option(None, "--monitor-url", "-m", help="Monitor base URL (Overwrites SWF_MONITOR_URL)"),
     api_token: Optional[str] = typer.Option(None, "--api-token", "-t", help="API token for authentication"),
     message_types: Optional[str] = typer.Option(None, "--message-types", help="Filter by message types (comma-separated)"),
     agents: Optional[str] = typer.Option(None, "--agents", help="Filter by agent names (comma-separated)")
