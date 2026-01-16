@@ -39,13 +39,13 @@ class FastMonitorAgent(BaseAgent):
         """
 
         # Initialize base agent with fast monitoring specific parameters
-        super().__init__(agent_type='fastmon', subscription_queue='epictopic', debug=debug)
+        super().__init__(agent_type='fastmon', subscription_queue='/topic/epictopic', debug=debug)
         self.running = True
 
         self.logger.info("Fast Monitor Agent initialized successfully")
 
         # Set destination for broadcasting TF file notifications
-        self.destination = os.getenv('ACTIVEMQ_FASTMON_TOPIC', 'epictopic')
+        self.destination = os.getenv('ACTIVEMQ_FASTMON_TOPIC', '/topic/epictopic')
 
         self.config = config
 
