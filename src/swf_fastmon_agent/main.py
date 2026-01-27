@@ -14,7 +14,7 @@ import os
 import time
 import json
 from datetime import datetime
-
+"""  """
 from swf_common_lib.base_agent import BaseAgent, setup_environment
 from swf_fastmon_agent import fastmon_utils
 
@@ -299,7 +299,7 @@ def main():
 
     swf_parent_dir = Path(__file__).resolve().parents[3]
     default_testbed_config = swf_parent_dir / 'swf-testbed' / 'workflows' / 'testbed.toml'
-    default_watch_dir = Path.home() / 'tmp' / 'DAQBuffer'
+    default_watch_dir = Path.home() / 'tmp' / 'DAQbuffer'
 
     parser = argparse.ArgumentParser(description='Fast Monitor Agent', formatter_class=argparse.RawTextHelpFormatter)
     parser.add_argument('--debug', action='store_true', help='Enable debug logging for heartbeat messages')
