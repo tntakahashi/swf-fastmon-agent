@@ -366,8 +366,10 @@ def main():
 
 
 if __name__ == "__main__":
-    # Setup environment first
-    if not setup_environment():
-        sys.exit(1)
+    # Setup environment first (only if not already done)
+    if not os.getenv("SWF_ENV_LOADED"):
+        if not setup_environment():
+            sys.exit(1)
+        os.environ["SWF_ENV_LOADED"] = 'true'
 
     main()
