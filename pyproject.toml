@@ -18,6 +18,7 @@ dependencies = [
     "python-json-logger>=2.0.0",
 ]
 [project.optional-dependencies]
+xrootd = ["xrootd>=5.8.3"]
 dev = [
     "pytest>=7.0.0",
     "pytest-django>=4.5.0",
