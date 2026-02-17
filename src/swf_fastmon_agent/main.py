@@ -291,6 +291,13 @@ class FastMonitorAgent(BaseAgent):
         finally:
             self.logger.info("Fast Monitor Agent stopped")
 
+def expand_all(s: str, max_iter: int = 10) -> str:
+    for _ in range(max_iter):
+        new = os.path.expandvars(s)
+        if new == s:
+            return new
+        s = new
+    return s
 
 def main():
     """Main entry point for the agent."""
@@ -316,9 +323,15 @@ def main():
                         help=("Directory to watch (can be specified multiple times)\n"
                               "ENV: FASTMON_WATCH_DIR (colon-separated, ':')\n"
                               f"(default: [{default_watch_dir}])"))
+    parser.add_argument('--tf-base-url',
+                        type=str,
+                        default=None,
+                        help=('Base URL (directory) for TF files (root://<host>:<port>/<path>, file://<path>)\n'
+                              'ENV: FASTMON_TF_BASE_URL\n'
+                              f'(default: file://)'))
     args = parser.parse_args()
 
-    env_testbed_config = os.getenv('SWF_TESTBED_CONFIG')
+    env_testbed_config = expand_all(os.getenv('SWF_TESTBED_CONFIG'))
     if args.testbed_config is not None:
         testbed_config = args.testbed_config
     elif env_testbed_config:
@@ -327,13 +340,21 @@ def main():
         testbed_config = default_testbed_config
 
     # e.g. export FASTMON_WATCH_DIR="/dir1:/dir2"
-    env_watch_dir = os.getenv('FASTMON_WATCH_DIR')
+    env_watch_dir = expand_all(os.getenv('FASTMON_WATCH_DIR'))
     if args.watch_dir is not None:
         watch_dirs = args.watch_dir
     elif env_watch_dir:
         watch_dirs = [Path(p) for p in env_watch_dir.split(':') if p]
     else:
         watch_dirs = [default_watch_dir]
+
+    env_tf_base_url = expand_all(os.getenv('FASTMON_TF_BASE_URL'))
+    if args.tf_base_url is not None:
+        tf_base_url = args.tf_base_url
+    elif env_tf_base_url:
+        tf_base_url = env_tf_base_url 
+    else:
+        tf_base_url = "file://"
 
     # Configuration for message-driven agent
     config = {
@@ -344,6 +365,7 @@ def main():
         "selection_fraction": 0.1,  # 10% of files
         "default_run_number": 1,
         "base_url": "file://",
+        "tf_base_url": tf_base_url,
         "calculate_checksum": True,
         # TF simulation parameters
         "tf_files_per_stf": 7,  # Number of TF files to generate per STF
