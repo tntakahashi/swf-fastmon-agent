@@ -14,7 +14,7 @@ import os
 import time
 import json
 from datetime import datetime
-
+"""  """
 from swf_common_lib.base_agent import BaseAgent, setup_environment
 from swf_fastmon_agent import fastmon_utils
 
@@ -25,7 +25,7 @@ class FastMonitorAgent(BaseAgent):
     Then broadcasts the TF notifications via ActiveMQ.
     """
 
-    def __init__(self, config: dict, debug=False):
+    def __init__(self, config: dict, debug=False, config_path=None):
         """
         Initialize the fast monitoring agent.
 
@@ -36,16 +36,18 @@ class FastMonitorAgent(BaseAgent):
                 - tf_size_fraction: Fraction of STF size for each TF
                 - tf_sequence_start: Starting sequence number for TF files
             debug: Enable debug logging for heartbeat messages
+            config_path: Path to testbed.toml config file
         """
 
         # Initialize base agent with fast monitoring specific parameters
-        super().__init__(agent_type='fastmon', subscription_queue='epictopic', debug=debug)
+        super().__init__(agent_type='fastmon', subscription_queue='/topic/epictopic', debug=debug, config_path=config_path)
+
         self.running = True
 
         self.logger.info("Fast Monitor Agent initialized successfully")
 
         # Set destination for broadcasting TF file notifications
-        self.destination = os.getenv('ACTIVEMQ_FASTMON_TOPIC', 'epictopic')
+        self.destination = os.getenv('ACTIVEMQ_FASTMON_TOPIC', '/topic/epictopic')
 
         self.config = config
 
@@ -289,26 +291,81 @@ class FastMonitorAgent(BaseAgent):
         finally:
             self.logger.info("Fast Monitor Agent stopped")
 
+def expand_all(s: str, max_iter: int = 10) -> str:
+    for _ in range(max_iter):
+        new = os.path.expandvars(s)
+        if new == s:
+            return new
+        s = new
+    return s
 
 def main():
     """Main entry point for the agent."""
     import argparse
+    from pathlib import Path
 
-    parser = argparse.ArgumentParser(description='Fast Monitor Agent')
+    swf_parent_dir = Path(__file__).resolve().parents[3]
+    default_testbed_config = swf_parent_dir / 'swf-testbed' / 'workflows' / 'testbed.toml'
+    default_watch_dir = Path.home() / 'tmp' / 'DAQbuffer'
+
+    parser = argparse.ArgumentParser(description='Fast Monitor Agent', formatter_class=argparse.RawTextHelpFormatter)
     parser.add_argument('--debug', action='store_true', help='Enable debug logging for heartbeat messages')
+    parser.add_argument('--testbed-config', 
+                        type=Path, 
+                        default=None,
+                        help=('Path to Testbed config file (testbed.toml)\n'
+                              'ENV: SWF_TESTBED_CONFIG\n'
+                              f'(default: {default_testbed_config})'))
+    parser.add_argument('--watch-dir', 
+                        action="append",
+                        type=Path, 
+                        default=None, 
+                        help=("Directory to watch (can be specified multiple times)\n"
+                              "ENV: FASTMON_WATCH_DIR (colon-separated, ':')\n"
+                              f"(default: [{default_watch_dir}])"))
+    parser.add_argument('--tf-base-url',
+                        type=str,
+                        default=None,
+                        help=('Base URL (directory) for TF files (root://<host>:<port>/<path>, file://<path>)\n'
+                              'ENV: FASTMON_TF_BASE_URL\n'
+                              f'(default: file://)'))
     args = parser.parse_args()
+
+    env_testbed_config = expand_all(os.getenv('SWF_TESTBED_CONFIG'))
+    if args.testbed_config is not None:
+        testbed_config = args.testbed_config
+    elif env_testbed_config:
+        testbed_config = Path(env_testbed_config)
+    else:
+        testbed_config = default_testbed_config
+
+    # e.g. export FASTMON_WATCH_DIR="/dir1:/dir2"
+    env_watch_dir = expand_all(os.getenv('FASTMON_WATCH_DIR'))
+    if args.watch_dir is not None:
+        watch_dirs = args.watch_dir
+    elif env_watch_dir:
+        watch_dirs = [Path(p) for p in env_watch_dir.split(':') if p]
+    else:
+        watch_dirs = [default_watch_dir]
+
+    env_tf_base_url = expand_all(os.getenv('FASTMON_TF_BASE_URL'))
+    if args.tf_base_url is not None:
+        tf_base_url = args.tf_base_url
+    elif env_tf_base_url:
+        tf_base_url = env_tf_base_url 
+    else:
+        tf_base_url = "file://"
 
     # Configuration for message-driven agent
     config = {
-        "watch_directories": [
-            "/Users/villanueva/tmp/DAQbuffer",
-        ],
+        "watch_directories": [str(p) for p in watch_dirs],
         "file_patterns": ["*.stf", "*.STF"],
         "check_interval": 30,  # seconds
         "lookback_time": 0,  # minutes
         "selection_fraction": 0.1,  # 10% of files
         "default_run_number": 1,
         "base_url": "file://",
+        "tf_base_url": tf_base_url,
         "calculate_checksum": True,
         # TF simulation parameters
         "tf_files_per_stf": 7,  # Number of TF files to generate per STF
@@ -317,7 +374,7 @@ def main():
     }
 
     # Create agent with config and debug flag
-    agent = FastMonitorAgent(config, debug=args.debug)
+    agent = FastMonitorAgent(config, debug=args.debug, config_path=testbed_config)
 
     # Check if we should run in message-driven mode or continuous mode
     mode = os.getenv('FASTMON_MODE', '').lower()
@@ -331,8 +388,10 @@ def main():
 
 
 if __name__ == "__main__":
-    # Setup environment first
-    if not setup_environment():
-        sys.exit(1)
+    # Setup environment first (only if not already done)
+    if not os.getenv("SWF_ENV_LOADED"):
+        if not setup_environment():
+            sys.exit(1)
+        os.environ["SWF_ENV_LOADED"] = 'true'
 
     main()

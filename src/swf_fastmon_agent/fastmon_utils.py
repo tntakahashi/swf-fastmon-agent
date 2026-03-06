@@ -11,7 +11,13 @@ import re
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import List, Dict, Any
+from urllib.parse import urlparse
 
+try:
+    from XRootD import client
+    HAS_XROOTD = True
+except ImportError:
+    HAS_XROOTD = False
 
 # File status constants (matching Django FileStatus choices)
 class FileStatus:
@@ -296,12 +302,40 @@ def simulate_tf_subsamples(stf_file: Dict[str, Any], config: dict, logger: loggi
         stf_size = stf_file.get("size_bytes", 0)
         # filename without extension
         base_filename = stf_file.get("filename", "unknown").rsplit('.', 1)[0]
+
+        tf_base_url = config.get("tf_base_url", "")
         
         for i in range(tf_files_per_stf):
             sequence_number = tf_sequence_start + i
             
             # Generate TF filename based on STF filename
             tf_filename = f"{base_filename}_tf_{sequence_number:03d}.tf"
+
+            if tf_base_url:
+                parsed_url = urlparse(tf_base_url)
+                if parsed_url.path:
+                    tf_filename = f"{tf_base_url}/{tf_filename}"
+                else:
+                    tf_filename = construct_file_url(Path(tf_filename), tf_base_url)
+                if HAS_XROOTD: 
+                    # create empty TF file
+                    try:
+                        parsed = urlparse(tf_filename)
+                        fs = client.FileSystem(f'{parsed.scheme}://{parsed.netloc}')
+                        f = client.File()
+
+                        # To avoid a "permission denied" error, perform the file operation locally by using the path (= parsed.path) without the scheme and netloc.
+                        status, _ = f.open(
+                            parsed.path, # tf_filename
+                            client.flags.OpenFlags.NEW 
+                            | client.flags.OpenFlags.WRITE 
+                            | client.flags.OpenFlags.MAKEPATH)
+                        if not status.ok:
+                            raise RuntimeError(f"Failed to create TF file = {tf_filename}, status = {status.message}")
+                    except Exception as e:
+                        print(f"An exception occurred while creating the TF file: {e}")
+
+
             
             # Calculate TF file size as fraction of STF size with some gaussian randomness
             tf_size = int(stf_size * tf_size_fraction * random.gauss(1.0, 0.1))
