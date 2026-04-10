@@ -321,17 +321,23 @@ def simulate_tf_subsamples(stf_file: Dict[str, Any], config: dict, logger: loggi
                     # create empty TF file
                     try:
                         parsed = urlparse(tf_filename)
-                        fs = client.FileSystem(f'{parsed.scheme}://{parsed.netloc}')
                         f = client.File()
-
-                        # To avoid a "permission denied" error, perform the file operation locally by using the path (= parsed.path) without the scheme and netloc.
-                        status, _ = f.open(
-                            parsed.path, # tf_filename
-                            client.flags.OpenFlags.NEW 
-                            | client.flags.OpenFlags.WRITE 
-                            | client.flags.OpenFlags.MAKEPATH)
-                        if not status.ok:
-                            raise RuntimeError(f"Failed to create TF file = {tf_filename}, status = {status.message}")
+                        try:
+                            # To avoid a "permission denied" error, perform the file operation locally by using the path (= parsed.path) without the scheme and netloc.
+                            status, _ = f.open(
+                                parsed.path,  # tf_filename
+                                client.flags.OpenFlags.NEW
+                                | client.flags.OpenFlags.WRITE
+                                | client.flags.OpenFlags.MAKEPATH
+                            )
+                            if not status.ok:
+                                raise RuntimeError(f"Failed to create TF file = {tf_filename}, status = {status.message}")
+                        finally:
+                            try:
+                                f.close()
+                            except Exception:
+                                # Suppress close errors to preserve original exceptions
+                                pass
                     except Exception as e:
                         logger.exception("An exception occurred while creating the TF file '%s'", tf_filename)
 
