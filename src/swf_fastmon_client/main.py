@@ -58,8 +58,11 @@ class FastMonitoringClient:
         if not self.api_token:
             raise ValueError("SWF_API_TOKEN environment variable is required")
         
-        if not self.xrootd_target_dir:
-            raise ValueError("Either --xrootd-target-dir option or FASTMON_CLIENT_XROOTD_TARGET_DIR environment variable is required")
+        if HAS_XROOTD and not self.xrootd_target_dir:
+            raise ValueError(
+                "Either --xrootd-target-dir option or FASTMON_CLIENT_XROOTD_TARGET_DIR environment variable "
+                "is required when XRootD is available"
+            )
         
         # Client-specific state
         self.tf_files_received = 0

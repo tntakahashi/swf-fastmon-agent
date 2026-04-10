@@ -333,7 +333,7 @@ def simulate_tf_subsamples(stf_file: Dict[str, Any], config: dict, logger: loggi
                         if not status.ok:
                             raise RuntimeError(f"Failed to create TF file = {tf_filename}, status = {status.message}")
                     except Exception as e:
-                        print(f"An exception occurred while creating the TF file: {e}")
+                        logger.exception("An exception occurred while creating the TF file '%s'", tf_filename)
 
 
             
