@@ -323,7 +323,7 @@ class FastMonitoringClient:
             if not status.ok:
                 raise ValueError(f"Failed to download TF file = {tf_filename}, target = {target}, status = {status.message}")
         except Exception as e:
-            print(f"An exception occurred while doanloading the TF file: {e}")
+            print(f"An exception occurred while downloading the TF file: {e}")
 
     def display_summary(self):
         """Display summary statistics."""
@@ -392,7 +392,7 @@ def start(
     api_token: Optional[str] = typer.Option(None, "--api-token", "-t", help="API token for authentication"),
     message_types: Optional[str] = typer.Option(None, "--message-types", help="Filter by message types (comma-separated)"),
     agents: Optional[str] = typer.Option(None, "--agents", help="Filter by agent names (comma-separated)"), 
-    xrootd_target_dir: Optional[str] = typer.Option(None, "--xrootd-target-dir", help="Target directory for doanloaded TF files via XRootD"),
+    xrootd_target_dir: Optional[str] = typer.Option(None, "--xrootd-target-dir", help="Target directory for downloaded TF files via XRootD"),
 ):
     """Start the fast monitoring client with SSE streaming."""
     
