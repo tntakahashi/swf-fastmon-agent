@@ -27,6 +27,12 @@ except ImportError:
     HAS_XROOTD = False
 
 def expand_all(s: str, max_iter: int = 10) -> str:
+    """
+    Recursively expands environment variables in a string.
+    """
+    # Immediately return if s is None or an empty string
+    if not s:
+        return s
     for _ in range(max_iter):
         new = os.path.expandvars(s)
         if new == s:
