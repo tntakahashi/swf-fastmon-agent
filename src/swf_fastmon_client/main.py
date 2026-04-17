@@ -311,12 +311,23 @@ class FastMonitoringClient:
             print(f"[{timestamp}] TF: {tf_filename} | Size: {file_size} | STF: {stf_filename} | Run: {run_number} | Status: {status}")
 
     def _download_tf(self, tf_filename: str) -> None:
+        """
+        Downloads a Transfer File (TF) to the local target directory using the XRootD client.
+
+        If the XRootD client is not installed or available, the download is skipped.
+
+        Args:
+            tf_filename (str): The source URL or path of the TF file to be downloaded.
+        """
         try: 
             if not HAS_XROOTD: 
                 print("XRootD is not available. Skipping TF file download.")
                 return
 
             parsed = urlparse(tf_filename)
+            # TODO: Handle local filesystem `file://` paths 
+            if not 'root' in parsed.scheme:
+                raise RuntimeError(f"Protocol in {tf_filename} not supported. Only root is supported at this time").
             fs = client.FileSystem(f'{parsed.scheme}://{parsed.netloc}')
             #src = parsed.path
             src = tf_filename
@@ -326,7 +337,7 @@ class FastMonitoringClient:
             if not status.ok:
                 raise ValueError(f"Failed to download TF file = {tf_filename}, target = {target}, status = {status.message}")
         except Exception as e:
-            print(f"An exception occurred while downloading the TF file: {e}")
+            self.logger.error(f"An exception occurred while downloading the TF file: {e}")
 
     def display_summary(self):
         """Display summary statistics."""

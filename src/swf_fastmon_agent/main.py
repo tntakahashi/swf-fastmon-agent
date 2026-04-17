@@ -290,7 +290,13 @@ class FastMonitorAgent(BaseAgent):
         finally:
             self.logger.info("Fast Monitor Agent stopped")
 
-def expand_all(s: str, max_iter: int = 10) -> str:
+def expand_all(s: Optional[str], max_iter: int = 10) -> Optional[str]:
+    """
+    Recursively expands environment variables in a string.
+    """
+    # Safely handles None values, immediately return if s is None or an empty string
+    if not s:
+        return s
     for _ in range(max_iter):
         new = os.path.expandvars(s)
         if new == s:
