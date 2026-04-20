@@ -26,7 +26,7 @@ try:
 except ImportError:
     HAS_XROOTD = False
 
-def expand_all(s: str, max_iter: int = 10) -> str:
+def expand_all(s: Optional[str], max_iter: int = 10) -> Optional[str]:
     """
     Recursively expands environment variables in a string.
     """
@@ -59,16 +59,8 @@ class FastMonitoringClient:
         self.api_token = api_token or os.getenv('SWF_API_TOKEN')
         self.xrootd_target_dir = xrootd_target_dir or expand_all(os.getenv('FASTMON_CLIENT_XROOTD_TARGET_DIR'))
 
-        print(f'xrootd_target_dir: {self.xrootd_target_dir}')
-        
         if not self.api_token:
             raise ValueError("SWF_API_TOKEN environment variable is required")
-        
-        if HAS_XROOTD and not self.xrootd_target_dir:
-            raise ValueError(
-                "Either --xrootd-target-dir option or FASTMON_CLIENT_XROOTD_TARGET_DIR environment variable "
-                "is required when XRootD is available"
-            )
         
         # Client-specific state
         self.tf_files_received = 0
@@ -92,6 +84,11 @@ class FastMonitoringClient:
         
         print("🔧 Fast Monitoring Client initialized")
         print(f"   Monitor URL: {self.monitor_base_url}")
+        if self.xrootd_target_dir:
+            print(f"   XRootD downloads: enabled")
+            print(f"   XRootD target: {self.xrootd_target_dir}")
+        else:
+            print(f"   XRootD downloads: disabled")
         print(f"   Token prefix: {self.api_token[:12]}..." if len(self.api_token) >= 12 else "   Token: [short token]")
 
     def _setup_environment(self):
@@ -318,7 +315,7 @@ class FastMonitoringClient:
 
     def _download_tf(self, tf_filename: str) -> None:
         """
-        Downloads a Transfer File (TF) to the local target directory using the XRootD client.
+        Downloads a timeframe (TF) file to the local target directory using the XRootD client.
 
         If the XRootD client is not installed or available, the download is skipped.
 
@@ -326,6 +323,10 @@ class FastMonitoringClient:
             tf_filename (str): The source URL or path of the TF file to be downloaded.
         """
         try: 
+            if not self.xrootd_target_dir:
+                self.logger.debug("XRootD download skipped: no target directory configured")
+                return
+
             if not HAS_XROOTD: 
                 print("XRootD is not available. Skipping TF file download.")
                 return
@@ -333,7 +334,7 @@ class FastMonitoringClient:
             parsed = urlparse(tf_filename)
             # TODO: Handle local filesystem `file://` paths 
             if not 'root' in parsed.scheme:
-                raise RuntimeError(f"Protocol in {tf_filename} not supported. Only root is supported at this time").
+                raise RuntimeError(f"Protocol in {tf_filename} not supported. Only root is supported at this time")
             fs = client.FileSystem(f'{parsed.scheme}://{parsed.netloc}')
             #src = parsed.path
             src = tf_filename

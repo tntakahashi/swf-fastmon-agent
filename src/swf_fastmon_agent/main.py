@@ -14,6 +14,7 @@ import os
 import time
 import json
 from datetime import datetime
+from typing import Optional
 from swf_common_lib.base_agent import BaseAgent, setup_environment
 from swf_fastmon_agent import fastmon_utils
 
