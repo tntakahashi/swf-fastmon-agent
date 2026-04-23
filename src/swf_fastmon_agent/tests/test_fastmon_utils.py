@@ -198,8 +198,8 @@ class TestSimulateTfSubsamples:
             assert 'file_size_bytes' in tf
             assert 'sequence_number' in tf
             assert tf['sequence_number'] == i + 1
-            assert tf['stf_file_id'] == 'stf-uuid-123'  # UUID for foreign key
-            assert tf['stf_parent'] == 'test_run001.stf'  # Filename for reference
+            assert tf['stf_file_id'] == 'stf-uuid-123'  # UUID
+            assert tf['stf_filename'] == 'test_run001.stf'  # Filename used by swf-monitor to resolve the parent STF.
             assert 'simulation' in tf['metadata']
 
     def test_generate_tf_with_defaults(self):
@@ -223,13 +223,14 @@ class TestSimulateTfSubsamples:
         assert result[0]['sequence_number'] == 1
         assert result[-1]['sequence_number'] == 2
         assert all(tf['stf_file_id'] == 'stf-uuid-456' for tf in result)
+        assert all(tf['stf_filename'] == 'test.stf' for tf in result)
 
 
 class TestRecordTfFile:
     """Tests for record_tf_file function."""
 
     def test_record_tf_file_success(self):
-        """Test successful TF file recording via REST API with UUID foreign key."""
+        """Test successful TF file recording via REST API with parent STF filename."""
         # Mock agent and logger
         mock_agent = Mock()
         mock_logger = Mock()
@@ -241,10 +242,10 @@ class TestRecordTfFile:
             'status': 'REGISTERED'
         }
 
-        # TF metadata now includes stf_file_id (UUID) for foreign key
+        # TF metadata now includes stf_filename used by swf-monitor to resolve the parent STF.
         tf_metadata = {
-            'stf_file_id': 'stf-uuid-parent-456',  # UUID foreign key
-            'stf_parent': 'test_run001.stf',  # Filename for reference
+            'stf_file_id': 'stf-uuid-parent-456',  # UUID 
+            'stf_filename': 'test_run001.stf',  # Filename used by swf-monitor to resolve the parent STF.
             'tf_filename': 'test_tf_001.tf',
             'file_size_bytes': 150000,
             'metadata': {'simulation': True}
@@ -253,10 +254,10 @@ class TestRecordTfFile:
 
         result = record_tf_file(tf_metadata, config, mock_agent, mock_logger)
 
-        # Verify TF file was recorded with UUID foreign key
+        # Verify TF file was recorded with stf_filename foreign key
         assert result['tf_file_id'] == 'tf-uuid-123'
         mock_agent.call_monitor_api.assert_called_once_with('post', '/fastmon-files/', {
-            'stf_file': 'stf-uuid-parent-456',  # UUID, not filename
+            'stf_file': 'test_run001.stf',  # filename for foreign key
             'tf_filename': 'test_tf_001.tf',
             'file_size_bytes': 150000,
             'status': FileStatus.REGISTERED,

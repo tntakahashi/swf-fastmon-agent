@@ -286,7 +286,7 @@ def simulate_tf_subsamples(stf_file: Dict[str, Any], config: dict, logger: loggi
     Simulate creation of Time Frame (TF) subsamples from a Super Time Frame (STF) file.
     
     Args:
-        stf_file: STF data dictionary (follows the keys from daq agent)
+        stf_file: STF data dictionary (follows the keys from data agent)
         config: Configuration dictionary
         logger: Logger instance
         
@@ -351,8 +351,8 @@ def simulate_tf_subsamples(stf_file: Dict[str, Any], config: dict, logger: loggi
                 "tf_filename": tf_filename,
                 "file_size_bytes": tf_size,
                 "sequence_number": sequence_number,
-                "stf_file_id": stf_file.get("file_id"),  # UUID for foreign key reference
-                "stf_parent": stf_file.get("filename"),  # Keep filename for reference
+                "stf_file_id": stf_file.get("file_id"), 
+                "stf_filename": stf_file.get("filename"),  # Parent STF filename used by swf-monitor to resolve FastMonFile.stf_file.
                 "metadata": {
                     "simulation": True,
                     "created_from": stf_file.get('filename'),
@@ -390,7 +390,7 @@ def record_tf_file(tf_metadata: Dict[str, Any], config: dict, agent, logger: log
     try:
         # Prepare FastMonFile data for API
         tf_file_data = {
-            "stf_file": tf_metadata.get("stf_file_id"),  # UUID foreign key to StfFile
+            "stf_file": tf_metadata.get("stf_filename"),  # swf-monitor resolves FastMonFile.stf_file by StfFile.stf_filename.
             "tf_filename": tf_metadata["tf_filename"],
             "file_size_bytes": tf_metadata["file_size_bytes"],
             "status": FileStatus.REGISTERED,
@@ -431,7 +431,7 @@ def create_tf_message(tf_file: Dict[str, Any], stf_file: Dict[str, Any], agent_n
         "tf_file_id": tf_file.get('tf_file_id'),
         "tf_filename": tf_file.get('tf_filename'),
         "file_size_bytes": tf_file.get('file_size_bytes'),
-        "stf_filename": stf_file.get('stf_filename'),
+        "stf_filename": stf_file.get('stf_filename') or stf_file.get('filename'),
         "run_number": run_number,
         "status": tf_file.get('status'),
         "timestamp": datetime.now().isoformat(),
